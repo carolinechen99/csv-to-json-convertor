@@ -1,38 +1,42 @@
-use serde::{Serialize, Deserialize};
-use serde_json::{Result, Value};
-use std::error::Error;
+use std::collections::HashMap;
+use std::env;
 use std::fs::File;
-use std::io::{self, BufReader, Write};
-use std::path::Path;
+use std::io::{BufReader, BufWriter};
+use std::error::Error;
 
-#[derive(Debug, Serialize, Deserialize)]
-struct Data {
-    name: String,
-    age: u32,
-    email: String,
-}
-
-fn csv_to_json(file_path: &str) -> Result<Value> {
-    let file = File::open(file_path)?;
-    let reader = BufReader::new(file);
-    let mut records = csv::Reader::from_reader(reader).deserialize::<Data>();
-
-    let mut json_data: Vec<Value> = vec![];
-    for record in records {
-        let data = record?;
-        json_data.push(serde_json::to_value(data)?);
-    }
-
-    Ok(serde_json::to_value(json_data)?)
-}
+use csv::ReaderBuilder;
+use serde_json::to_writer_pretty;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let input_file_path = Path::new("data.csv");
-    let output_file_path = Path::new("data.json");
-    let json_data = csv_to_json(input_file_path.to_str().unwrap())?;
+    let args: Vec<String> = env::args().collect();
+    if args.len() != 3 {
+        panic!("Usage: {} <input_csv_file> <output_json_file>", args[0]);
+    }
 
-    let mut output_file = File::create(output_file_path)?;
-    output_file.write_all(json_data.to_string().as_bytes())?;
+    let input_csv_file = &args[1];
+    let output_json_file = &args[2];
+
+    let csv_reader = BufReader::new(File::open(input_csv_file)?);
+    let mut reader = ReaderBuilder::new().from_reader(csv_reader);
+
+    let headers = reader.headers()?.clone();
+
+    let json_writer = BufWriter::new(File::create(output_json_file)?);
+
+    let mut records: Vec<HashMap<String, String>> = Vec::new();
+
+    for result in reader.records() {
+        let record = result?;
+        let mut record_map = HashMap::new();
+        for (header, field) in headers.iter().zip(record.iter()) {
+            record_map.insert(header.to_string(), field.to_string());
+        }
+        records.push(record_map);
+    }
+
+    to_writer_pretty(json_writer, &records)?;
+
+    println!("CSV file '{input_csv_file}' has been converted to JSON file '{output_json_file}'");
 
     Ok(())
 }
